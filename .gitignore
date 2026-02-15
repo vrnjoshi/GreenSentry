@@ -1,79 +1,20 @@
-# Python
+# Python stuff
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Virtual Environments
 .venv/
-venv/
-ENV/
-env/
+
+# Environment / Secret variables (IMPORTANT: Never push passwords/keys!)
 .env
-
-# Jupyter Notebook
-.ipynb_checkpoints/
-*.ipynb_checkpoints
-
-# IDE / Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-.project
-.pydevproject
-.settings/
-*.sublime-project
-*.sublime-workspace
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.hypothesis/
-
-# Azure
 .azure/
-azure.json
 
-# Bicep / Terraform
-*.tfstate
-*.tfstate.*
-.terraform/
-.terraform.lock.hcl
-
-# Data files (keep folder structure)
-data/*.jsonl
-data/*.json
-data/*.csv
-data/*.parquet
-
-# Logs
-*.log
-logs/
-
-# OS
+# OS specific files
 .DS_Store
 Thumbs.db
+
+# IDE specific
+.vscode/
+
+# We are NOT ignoring the data folder because our training 
+# samples are part of the project submission.
