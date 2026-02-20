@@ -16,5 +16,8 @@ Thumbs.db
 # IDE specific
 .vscode/
 
+# Claude Code working files
+.claude/
+
 # We are NOT ignoring the data folder because our training 
 # samples are part of the project submission.
