@@ -8,3 +8,7 @@ python-dotenv
 # Semantic Kernel Agent Framework (Day 2)
 # Install with: pip install "semantic-kernel[azure]"
 semantic-kernel[azure]
+
+# Testing
+pytest
+pytest-asyncio
