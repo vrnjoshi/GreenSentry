@@ -1,5 +1,10 @@
+# MCP Server dependencies (Day 1)
 mcp[cli]
 psutil
 azure-mgmt-consumption
 azure-identity
 python-dotenv
+
+# Semantic Kernel Agent Framework (Day 2)
+# Install with: pip install "semantic-kernel[azure]"
+semantic-kernel[azure]
