@@ -1,13 +1,18 @@
 """
-GreenSentry Agent - Day 2
+GreenSentry Agent - Day 3
 An AI agent powered by Semantic Kernel (Microsoft Agent Framework) that can
-audit your system's carbon footprint and give green engineering recommendations.
+audit your system's carbon footprint and review code for energy efficiency.
 
 How it works:
   1. You type a question in plain English
   2. The agent decides which tool(s) to call to get real data
   3. It combines the data and gives you a concrete recommendation
   4. It remembers the full conversation so you can ask follow-up questions
+
+Tools:
+  - get_green_metrics        — local CPU/RAM carbon audit
+  - get_azure_carbon_estimate — live Azure cloud spend → carbon estimate
+  - audit_code               — green code review powered by fine-tuned model
 """
 
 import asyncio
@@ -17,10 +22,61 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from dotenv import load_dotenv
+from openai import AsyncAzureOpenAI
 from semantic_kernel import Kernel
 from semantic_kernel.agents import ChatCompletionAgent
 from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 from semantic_kernel.functions import kernel_function
+
+# =============================================================================
+# Few-shot examples for the code auditor
+# =============================================================================
+# These are the same examples used to fine-tune the model.
+# When the fine-tuned deployment isn't available yet, this system prompt
+# teaches the base model to respond in exactly the same REFACTOR/WHY format.
+# Think of it like handing an intern a cheat sheet before their first shift.
+
+_AUDITOR_SYSTEM_PROMPT = """You are a Green Software SRE. Identify carbon-heavy code and provide a green refactor.
+
+Always respond in this exact format:
+REFACTOR: <the improved code>
+WHY: <one sentence explaining the energy/carbon saving>
+
+Examples:
+---
+User: Audit this code for energy efficiency: while True: print('Checking updates...')
+REFACTOR: import time
+while True:
+    print('Checking updates...')
+    time.sleep(60)
+WHY: Adding a sleep timer prevents 100% CPU usage during idle loops.
+---
+User: Audit this code for energy efficiency: data = [i for i in range(1000000)]
+for x in data: print(x)
+REFACTOR: for x in range(1000000): print(x)
+WHY: Using a generator/range instead of a full list saves significant RAM.
+---
+User: Audit this code for energy efficiency: import pandas as pd
+df = pd.read_csv('huge_file.csv')
+REFACTOR: import pandas as pd
+for chunk in pd.read_csv('huge_file.csv', chunksize=1000): process(chunk)
+WHY: Processing data in chunks prevents memory spikes and disk swapping.
+---
+User: Audit this code for energy efficiency: cursor.execute('SELECT * FROM global_users')
+REFACTOR: cursor.execute('SELECT username FROM global_users WHERE user_id = ?', (uid,))
+WHY: Selecting only necessary columns reduces data transfer energy (Network Carbon).
+---
+User: Audit this code for energy efficiency: for x in big_list:
+    result = heavy_computation(x)
+    process(result)
+REFACTOR: import functools
+@functools.lru_cache(maxsize=128)
+def cached_heavy(x): return heavy_computation(x)
+
+for x in big_list:
+    process(cached_heavy(x))
+WHY: Caching/Memoization prevents the CPU from repeating expensive calculations.
+"""
 
 
 # =============================================================================
@@ -123,6 +179,48 @@ class GreenSentryPlugin:
         except Exception as e:
             return f"Azure query failed: {str(e)}"
 
+    @kernel_function(
+        name="audit_code",
+        description="Audits a snippet of Python code for energy efficiency and returns "
+                    "a greener refactored version with an explanation. Call this when the "
+                    "user shares code and asks for a green refactor, energy audit, carbon "
+                    "review, or sustainability analysis of their code."
+    )
+    async def audit_code(
+        self,
+        code: Annotated[str, "The Python code snippet to audit for energy efficiency"]
+    ) -> Annotated[str, "Green code audit with refactor and explanation"]:
+        """Sends code to the fine-tuned auditor model and returns a green refactor.
+
+        Uses AZURE_OPENAI_FT_DEPLOYMENT if set (the fine-tuned model).
+        Falls back to AZURE_OPENAI_DEPLOYMENT (base gpt-4o-mini) automatically.
+        """
+        # Use the fine-tuned model if available, otherwise fall back to base model
+        ft_deployment = os.getenv("AZURE_OPENAI_FT_DEPLOYMENT")
+        deployment = ft_deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+        model_label = "fine-tuned auditor" if ft_deployment else "base model (fine-tuning pending)"
+
+        client = AsyncAzureOpenAI(
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+            api_version="2024-08-01-preview",
+        )
+
+        try:
+            response = await client.chat.completions.create(
+                model=deployment,
+                messages=[
+                    {"role": "system", "content": _AUDITOR_SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Audit this code for energy efficiency: {code}"},
+                ],
+                temperature=0.2,
+                max_tokens=400,
+            )
+            result = response.choices[0].message.content
+            return f"Green Code Audit [{model_label}]:\n\n{result}"
+        except Exception as e:
+            return f"Code audit failed: {str(e)}"
+
 
 # =============================================================================
 # SECTION 2: Build the Kernel and Agent
@@ -183,12 +281,14 @@ async def main():
         instructions="""You are GreenSentry, an expert Sustainability SRE (Site Reliability Engineer).
 Your mission: help engineers understand and reduce the carbon footprint of their systems.
 
-You have two tools:
+You have three tools. You MUST call a tool before every response — never answer from memory alone:
 1. get_green_metrics — measures local CPU/RAM and estimates power draw + carbon footprint
 2. get_azure_carbon_estimate — queries real Azure cloud spending and estimates cloud carbon impact
+3. audit_code — the ONLY way to audit code. If the user shares ANY code snippet, you MUST call
+   audit_code(code=<the snippet>) FIRST. Do not write a refactor yourself — call the tool.
 
 Rules:
-- ALWAYS call the relevant tool first to get real data before answering sustainability questions.
+- ALWAYS call the relevant tool first. Never answer sustainability or code questions without a tool call.
 - Be concise and data-driven. Lead with the numbers, then interpret them.
 - Always end with 1-2 concrete, actionable green engineering suggestions based on the data.
 - If CPU is high, suggest: sleep timers, caching/memoization, chunked processing, async patterns.
@@ -196,8 +296,11 @@ Rules:
     )
 
     print("✅ Agent ready. Ask me about your carbon footprint.")
-    print("   Type 'quit' to exit.\n")
+    print("   Commands:")
+    print("     /audit <code>  — directly audit a code snippet for energy efficiency")
+    print("     quit           — exit\n")
 
+    plugin = GreenSentryPlugin()  # Direct access for /audit command
     thread = None  # Conversation history — None means a fresh session
 
     while True:
@@ -213,7 +316,16 @@ Rules:
             print("Goodbye! 🌿")
             break
 
-        # The agent automatically decides which tools to call based on the question.
+        # /audit <code> — bypass the agent and call the tool directly.
+        # This guarantees the fine-tuned model is called, no routing uncertainty.
+        if user_input.startswith("/audit "):
+            code = user_input[len("/audit "):]
+            print("GreenSentry: ", end="", flush=True)
+            result = await plugin.audit_code(code)
+            print(result + "\n")
+            continue
+
+        # For all other questions, let the agent decide which tool(s) to call.
         # We stream the response token-by-token so it appears progressively.
         print("GreenSentry: ", end="", flush=True)
         async for response in agent.invoke(messages=user_input, thread=thread):
